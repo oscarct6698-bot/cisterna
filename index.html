@@ -21,8 +21,8 @@
 <!-- QRCode generator - compatible Safari -->
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 
-<!-- jsQR para escanear QR desde cámara -->
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<!-- ZXing para escanear QR - mismo que pase de lista -->
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.19.1/umd/index.min.js"></script>
 
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -531,7 +531,6 @@ let lastDay = localStorage.getItem('lastDay') || '';
 
 // Estado de sesión
 let cur = { unit: null, litros: null, horo: null, litOk: false, horoOk: false, ocrTarget: null };
-let qrLoop = null;
 let camStreams = {};
 let fbDb = null;
 
@@ -674,65 +673,51 @@ function confirmarNuevoDia() {
 }
 
 // ========================
-// QR SCANNER REAL
+// QR SCANNER REAL - ZXing
 // ========================
 function initQRScanner() {
   const video = document.getElementById('qr-video');
-  const canvas = document.getElementById('qr-canvas');
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-  // iPhone requiere constraints simples — sin width/height fijos
-  const constraints = { video: { facingMode: { exact: 'environment' } } };
+  if (!window.ZXing) {
+    setTimeout(initQRScanner, 500);
+    return;
+  }
 
-  navigator.mediaDevices.getUserMedia(constraints)
-    .catch(() => navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }))
-    .catch(() => navigator.mediaDevices.getUserMedia({ video: true }))
-    .then(stream => {
-      if (!stream) throw new Error('no stream');
-      camStreams['qr'] = stream;
-      video.srcObject = stream;
-      video.setAttribute('playsinline', true);
-      video.play();
+  const hints = new Map();
+  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
 
-      const startScan = () => {
-        canvas.width = video.videoWidth || 640;
-        canvas.height = video.videoHeight || 480;
-        let lastScan = 0;
-        qrLoop = requestAnimationFrame(function scanFrame(ts) {
-          // Escanear máximo 10 veces por segundo para no saturar CPU
-          if (ts - lastScan > 100 && video.readyState === video.HAVE_ENOUGH_DATA) {
-            lastScan = ts;
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
-            if (code && code.data) {
-              procesarQR(code.data);
-              return;
-            }
-          }
-          qrLoop = requestAnimationFrame(scanFrame);
-        });
-      };
+  const codeReader = new ZXing.BrowserMultiFormatReader(hints, 200); // 200ms entre escaneos = más rápido
+  window._codeReader = codeReader;
 
-      if (video.readyState >= 2) {
-        startScan();
-      } else {
-        video.addEventListener('loadeddata', startScan, { once: true });
-        video.addEventListener('canplay', startScan, { once: true });
+  codeReader.listVideoInputDevices().then(devices => {
+    // Preferir cámara trasera
+    let deviceId = undefined;
+    const back = devices.find(d => /back|rear|environment/i.test(d.label));
+    if (back) deviceId = back.deviceId;
+    else if (devices.length > 0) deviceId = devices[devices.length - 1].deviceId;
+
+    codeReader.decodeFromVideoDevice(deviceId, 'qr-video', (result, err) => {
+      if (result) {
+        procesarQR(result.getText());
       }
-    })
-    .catch(() => {
-      video.parentElement.innerHTML = `
-        <div style="display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,0.6);font-size:13px;text-align:center;padding:1rem;">
-          Cámara no disponible.<br>Usa el ingreso manual abajo.
-        </div>`;
     });
+  }).catch(err => {
+    // Fallback: decodificar directo sin seleccionar dispositivo
+    codeReader.decodeFromVideoDevice(undefined, 'qr-video', (result, err) => {
+      if (result) procesarQR(result.getText());
+    });
+  });
+}
+
+function stopQRScanner() {
+  if (window._codeReader) {
+    window._codeReader.reset();
+    window._codeReader = null;
+  }
 }
 
 function procesarQR(data) {
-  if (qrLoop) { cancelAnimationFrame(qrLoop); qrLoop = null; }
+  stopQRScanner();
 
   let unitId = data.trim().toUpperCase();
   // Intentar parsear JSON por compatibilidad con QRs anteriores
@@ -765,7 +750,7 @@ function buscarUnidad(unitId) {
   const unit = unidades.find(u => u.id === unitId);
   if (!unit) {
     alert(`Unidad "${unitId}" no encontrada. Verifica el ID o actualiza el Excel de asignaciones.`);
-    if (!qrLoop) initQRScanner();
+    setTimeout(initQRScanner, 300);
     return;
   }
 
@@ -1082,7 +1067,8 @@ function resetScan() {
 
   goStep(1);
   // Reiniciar QR scanner
-  if (!qrLoop) initQRScanner();
+  stopQRScanner();
+  setTimeout(initQRScanner, 300);
 }
 
 // ========================
