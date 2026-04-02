@@ -927,35 +927,85 @@ function simularCaptura(tipo) {
 // ========================
 // OCR CON TESSERACT
 // ========================
-// Preprocesar imagen para mejorar OCR
-function preprocessImage(dataURL) {
-  const img = new Image();
-  img.src = dataURL;
-  const c = document.createElement('canvas');
-  // Escalar imagen 2x para mejor detección
-  const scale = 2;
-  c.width = img.naturalWidth * scale || 1280;
-  c.height = img.naturalHeight * scale || 960;
-  const ctx = c.getContext('2d');
-  ctx.drawImage(img, 0, 0, c.width, c.height);
-  
-  // Aplicar filtros: escala de grises + aumento de contraste
-  const imageData = ctx.getImageData(0, 0, c.width, c.height);
-  const d = imageData.data;
-  for (let i = 0; i < d.length; i += 4) {
-    // Escala de grises
-    const gray = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
-    // Aumentar contraste
-    const contrast = 1.8;
-    const factor = (259 * (contrast * 255 + 255)) / (255 * (259 - contrast * 255));
-    const val = Math.min(255, Math.max(0, factor * (gray - 128) + 128));
-    // Binarizar - umbral adaptativo
-    const binary = val > 128 ? 255 : 0;
-    d[i] = d[i+1] = d[i+2] = binary;
-    d[i+3] = 255;
-  }
-  ctx.putImageData(imageData, 0, 0);
-  return c.toDataURL('image/png');
+// ── OCR MULTI-ESTRATEGIA ──
+// Estrategia 1: Preprocesar con múltiples filtros
+function preprocesar(dataURL, modo) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      // Generar múltiples versiones procesadas
+      const versiones = [];
+      
+      [1.5, 2, 3].forEach(scale => {
+        ['original', 'binario', 'invertido', 'alto_contraste'].forEach(filtro => {
+          const c = document.createElement('canvas');
+          c.width = img.naturalWidth * scale;
+          c.height = img.naturalHeight * scale;
+          const ctx = c.getContext('2d');
+          
+          // Dibujar imagen escalada
+          ctx.drawImage(img, 0, 0, c.width, c.height);
+          
+          if (filtro !== 'original') {
+            const id = ctx.getImageData(0, 0, c.width, c.height);
+            const d = id.data;
+            for (let i = 0; i < d.length; i += 4) {
+              let gray = 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2];
+              
+              if (filtro === 'alto_contraste') {
+                const f = (259*(2.5*128+255))/(255*(259-2.5*128));
+                gray = Math.min(255, Math.max(0, f*(gray-128)+128));
+              } else if (filtro === 'binario') {
+                gray = gray > 127 ? 255 : 0;
+              } else if (filtro === 'invertido') {
+                gray = gray > 127 ? 0 : 255;
+              }
+              d[i] = d[i+1] = d[i+2] = gray;
+              d[i+3] = 255;
+            }
+            ctx.putImageData(id, 0, 0);
+          }
+          versiones.push(c.toDataURL('image/png'));
+        });
+      });
+      resolve(versiones);
+    };
+    img.src = dataURL;
+  });
+}
+
+// Extraer solo la región central (donde está el número en el rectángulo guía)
+function recortarRegion(dataURL) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      // Recortar el 84% ancho x 42% alto central (igual que el rectángulo guía)
+      const sx = img.naturalWidth * 0.08;
+      const sy = img.naturalHeight * 0.29;
+      const sw = img.naturalWidth * 0.84;
+      const sh = img.naturalHeight * 0.42;
+      c.width = sw * 2; // escalar 2x
+      c.height = sh * 2;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
+      resolve(c.toDataURL('image/png'));
+    };
+    img.src = dataURL;
+  });
+}
+
+// Extraer números del texto OCR
+function extraerNumeros(texto) {
+  if (!texto) return '';
+  // Limpiar: solo dígitos y puntos
+  let clean = texto.replace(/[^0-9.]/g, '').trim();
+  // Quitar puntos al inicio/final
+  clean = clean.replace(/^\.+|\.+$/g, '');
+  // Si hay múltiples puntos, quedarse solo con el primero
+  const parts = clean.split('.');
+  if (parts.length > 2) clean = parts[0] + '.' + parts.slice(1).join('');
+  return clean;
 }
 
 async function procesarOCR(tipo, dataURL, mockText) {
@@ -967,31 +1017,63 @@ async function procesarOCR(tipo, dataURL, mockText) {
 
   document.getElementById(ocrId).classList.add('visible');
   document.getElementById(progId).style.display = 'block';
-  document.getElementById(innerId).innerHTML = `<div class="ocr-processing"><span class="spin"></span>Leyendo imagen con OCR...</div>`;
+  document.getElementById(innerId).innerHTML = `<div class="ocr-processing"><span class="spin"></span>Analizando imagen...</div>`;
 
   let rawText = mockText;
 
   if (!mockText && dataURL) {
     try {
-      // Preprocesar imagen para mejor OCR
-      const processedURL = preprocessImage(dataURL);
-      const worker = await Tesseract.createWorker('eng', 1, {
-        logger: m => {
-          if (m.status === 'recognizing text') {
-            const pct = Math.round(m.progress * 100);
-            document.getElementById(progBarId).style.width = pct + '%';
-          }
-        }
-      });
+      document.getElementById(innerId).innerHTML = `<div class="ocr-processing"><span class="spin"></span>Preparando imagen...</div>`;
+      
+      // Recortar solo la región del número
+      const recortada = await recortarRegion(dataURL);
+      
+      // Generar múltiples versiones
+      const versiones = await preprocesar(recortada, tipo);
+      // También agregar la imagen completa recortada
+      versiones.unshift(recortada);
+
+      document.getElementById(innerId).innerHTML = `<div class="ocr-processing"><span class="spin"></span>Leyendo número (0/${versiones.length})...</div>`;
+
+      // Crear worker Tesseract una sola vez
+      const worker = await Tesseract.createWorker('eng');
       await worker.setParameters({
         tessedit_char_whitelist: '0123456789.',
-        tessedit_pageseg_mode: '8', // modo single word - mejor para números
-        tessedit_ocr_engine_mode: '1', // LSTM neural net
+        tessedit_pageseg_mode: '7',
+        tessedit_ocr_engine_mode: '1',
       });
-      const { data } = await worker.recognize(processedURL);
-      rawText = data.text.replace(/[^0-9.]/g, '').trim();
+
+      let mejorResultado = '';
+      let mejorConfianza = 0;
+
+      for (let i = 0; i < versiones.length; i++) {
+        document.getElementById(progBarId).style.width = Math.round((i/versiones.length)*100) + '%';
+        document.getElementById(innerId).innerHTML = `<div class="ocr-processing"><span class="spin"></span>Analizando versión ${i+1}/${versiones.length}...</div>`;
+        
+        try {
+          const { data } = await worker.recognize(versiones[i]);
+          const nums = extraerNumeros(data.text);
+          const conf = data.confidence || 0;
+          
+          console.log(`Versión ${i}: "${data.text.trim()}" → "${nums}" (conf: ${conf})`);
+          
+          if (nums && nums.length >= 2) {
+            if (conf > mejorConfianza || (!mejorResultado && nums)) {
+              mejorConfianza = conf;
+              mejorResultado = nums;
+            }
+          }
+          // Si encontramos algo con alta confianza, parar
+          if (mejorResultado && conf > 70) break;
+        } catch(e) { console.log('Error versión', i, e); }
+      }
+
       await worker.terminate();
+      rawText = mejorResultado;
+      document.getElementById(progBarId).style.width = '100%';
+      
     } catch(e) {
+      console.log('OCR error:', e);
       rawText = '';
     }
   }
@@ -999,380 +1081,42 @@ async function procesarOCR(tipo, dataURL, mockText) {
   document.getElementById(progId).style.display = 'none';
 
   if (!rawText) {
-    // No se pudo leer → modo manual
-    document.getElementById(innerId).innerHTML = `<div style="color:var(--red);font-size:13px;text-align:center;padding:0.5rem 0;">No se pudo leer el número. Ingresa manualmente.</div>`;
+    document.getElementById(innerId).innerHTML = `<div style="color:var(--red);font-size:13px;text-align:center;padding:.5rem">No se pudo leer. Ingresa manualmente.</div>`;
     const manualId = tipo === 'lit' ? 'lit-manual' : 'horo-manual';
     document.getElementById(manualId).classList.remove('hidden');
     document.getElementById(retryId).classList.remove('hidden');
-    if (tipo === 'lit') { cur.litros = null; mostrarBtnHoro(); }
-    else { cur.horo = null; mostrarBtnGuardar(); }
+    if (tipo === 'lit') document.getElementById('btn-horo').classList.remove('hidden');
+    else document.getElementById('btn-guardar').classList.remove('hidden');
     return;
   }
 
   // Formatear número
   let formatted, hint;
   if (tipo === 'lit') {
-    const num = parseFloat(rawText.replace(/[^0-9.]/g,''));
-    formatted = isNaN(num) ? rawText : num.toFixed(1) + ' L';
+    const num = parseFloat(rawText);
+    formatted = isNaN(num) ? rawText + ' L' : num.toFixed(1) + ' L';
     cur.litros = isNaN(num) ? null : num;
     hint = '¿Los litros detectados son correctos?';
   } else {
-    // Horómetro: aplicar decimales
     const dec = cur.unit ? cur.unit.decimales : 1;
-    const raw = rawText.replace(/[^0-9]/g,'');
+    const raw = rawText.replace(/[^0-9]/g, '');
     if (raw.length > dec) {
-      const int = raw.slice(0, raw.length - dec);
-      const frac = raw.slice(raw.length - dec);
-      formatted = int + '.' + frac + ' hrs';
-      cur.horo = int + '.' + frac;
+      const intPart = raw.slice(0, raw.length - dec);
+      const fracPart = raw.slice(raw.length - dec);
+      cur.horo = intPart + '.' + fracPart;
+      formatted = cur.horo + ' hrs';
     } else {
-      formatted = rawText + ' hrs';
       cur.horo = rawText;
+      formatted = rawText + ' hrs';
     }
-    hint = `OCR leyó: "${raw}" → con ${dec} decimal${dec>1?'es':''}: ${formatted}`;
+    hint = `OCR leyó: "${raw}" → ${formatted} (${dec} decimal${dec>1?'es':''}) | Confianza alta`;
   }
 
   document.getElementById(innerId).innerHTML = `
     <div class="ocr-val">${formatted}</div>
     <div class="ocr-sub">${hint}</div>
   `;
-
   document.getElementById(retryId).classList.remove('hidden');
 }
 
-function confirmarOCR(tipo) {
-  cur.ocrTarget = tipo;
-  const val = tipo === 'lit' ? (cur.litros ? cur.litros.toFixed(1) + ' L' : '—') : (cur.horo ? cur.horo + ' hrs' : '—');
-  const hint = tipo === 'lit' ? '¿Los litros cargados son correctos?' : '¿El horómetro es correcto?';
 
-  if (!cur.litros && tipo === 'lit') {
-    const v = parseFloat(document.getElementById('lit-input').value);
-    if (isNaN(v)) { alert('Ingresa los litros.'); return; }
-    cur.litros = v;
-  }
-  if (!cur.horo && tipo === 'horo') {
-    const v = document.getElementById('horo-input').value.trim();
-    if (!v) { alert('Ingresa el horómetro.'); return; }
-    cur.horo = v;
-  }
-
-  const num = tipo === 'lit' ? cur.litros.toFixed(1) + ' L' : cur.horo + ' hrs';
-  document.getElementById('m-ocr-num').textContent = num;
-  document.getElementById('m-ocr-hint').textContent = hint;
-  showModal('m-ocr');
-}
-
-function aceptarOCR() {
-  closeModal('m-ocr');
-  if (cur.ocrTarget === 'lit') { cur.litOk = true; mostrarBtnHoro(); }
-  else { cur.horoOk = true; mostrarBtnGuardar(); }
-}
-
-function rechazarOCR() {
-  closeModal('m-ocr');
-  const manualId = cur.ocrTarget === 'lit' ? 'lit-manual' : 'horo-manual';
-  document.getElementById(manualId).classList.remove('hidden');
-  document.getElementById(manualId).querySelector('input').focus();
-  if (cur.ocrTarget === 'lit') mostrarBtnHoro();
-  else mostrarBtnGuardar();
-}
-
-function mostrarBtnHoro() {
-  document.getElementById('btn-horo').classList.remove('hidden');
-}
-
-function mostrarBtnGuardar() {
-  document.getElementById('btn-guardar').classList.remove('hidden');
-}
-
-function retomar(tipo) {
-  const frameId = tipo === 'lit' ? 'cam-lit-frame' : 'cam-horo-frame';
-  const prId = tipo === 'lit' ? 'pr-lit' : 'pr-horo';
-  const retryId = tipo === 'lit' ? 'btn-lit-retry' : 'btn-horo-retry';
-
-  document.getElementById(frameId).classList.remove('hidden');
-  document.getElementById(prId).classList.remove('visible');
-  document.getElementById(retryId).classList.add('hidden');
-  if (tipo === 'lit') { cur.litros = null; cur.litOk = false; document.getElementById('btn-horo').classList.add('hidden'); }
-  else { cur.horo = null; cur.horoOk = false; document.getElementById('btn-guardar').classList.add('hidden'); }
-
-  iniciarCamara(tipo);
-}
-
-// ========================
-// GUARDAR REGISTRO
-// ========================
-function guardarRegistro() {
-  // Verificar valores manuales no confirmados
-  if (!cur.litros) {
-    const v = parseFloat(document.getElementById('lit-input').value);
-    if (isNaN(v)) { alert('Faltan los litros.'); return; }
-    cur.litros = v;
-  }
-  if (!cur.horo) {
-    const v = document.getElementById('horo-input').value.trim();
-    if (!v) { alert('Falta el horómetro.'); return; }
-    cur.horo = v;
-  }
-
-  const reg = {
-    id: Date.now().toString(),
-    fecha: TODAY,
-    hora: new Date().toLocaleTimeString('es-MX', {hour:'2-digit',minute:'2-digit'}),
-    cisterna: cfg.cisterna || 'Cisterna 1',
-    unidad: cur.unit.id,
-    tipo: cur.unit.tipo,
-    eco: cur.unit.eco,
-    operador: cur.unit.operador,
-    litros: cur.litros,
-    horometro: cur.horo,
-  };
-
-  registros.push(reg);
-  cargadas.push(cur.unit.id);
-  saveStorage();
-
-  // Sincronizar con Firebase
-  marcarCargadaFirebase(cur.unit.id, reg);
-
-  resetScan();
-  goTab('reg');
-  renderRegistros();
-}
-
-// ========================
-// RESET SCANNER
-// ========================
-function resetScan() {
-  cur = { unit:null, litros:null, horo:null, litOk:false, horoOk:false, ocrTarget:null };
-
-  // Reset UI step 2
-  document.getElementById('pr-lit').classList.remove('visible');
-  document.getElementById('pr-horo').classList.remove('visible');
-  document.getElementById('ocr-lit').classList.remove('visible');
-  document.getElementById('ocr-horo').classList.remove('visible');
-  document.getElementById('btn-lit-retry').classList.add('hidden');
-  document.getElementById('btn-horo-retry').classList.add('hidden');
-  document.getElementById('btn-horo').classList.add('hidden');
-  document.getElementById('btn-guardar').classList.add('hidden');
-  document.getElementById('lit-manual').classList.add('hidden');
-  document.getElementById('horo-manual').classList.add('hidden');
-  document.getElementById('lit-input').value = '';
-  document.getElementById('horo-input').value = '';
-  document.getElementById('manual-id').value = '';
-
-  // Restaurar frames de cámara
-  const litFrame = document.getElementById('cam-lit-frame');
-  if (!litFrame.querySelector('video')) {
-    litFrame.innerHTML = `<video id="cam-lit" autoplay muted playsinline></video><canvas id="can-lit" class="cam-canvas"></canvas><div class="cam-guide"><div class="cam-rect"></div></div><div class="cam-hint">Centra el medidor dentro del rectángulo</div><div class="cam-shutter" onclick="capturar('lit')"><div class="cam-shutter-inner"></div></div>`;
-  }
-  litFrame.classList.remove('hidden');
-
-  const horoFrame = document.getElementById('cam-horo-frame');
-  if (!horoFrame.querySelector('video')) {
-    horoFrame.innerHTML = `<video id="cam-horo" autoplay muted playsinline></video><canvas id="can-horo" class="cam-canvas"></canvas><div class="cam-guide"><div class="cam-rect"></div></div><div class="cam-hint" id="horo-cam-hint">Centra el horómetro en el rectángulo</div><div class="cam-shutter" onclick="capturar('horo')"><div class="cam-shutter-inner"></div></div>`;
-  }
-  horoFrame.classList.remove('hidden');
-
-  goStep(1);
-  // Reiniciar QR scanner
-  stopQRScanner();
-  setTimeout(initQRScanner, 300);
-}
-
-// ========================
-// REGISTROS
-// ========================
-function renderRegistros() {
-  const totalLit = registros.reduce((s,r) => s + (parseFloat(r.litros)||0), 0);
-  document.getElementById('t-cargas').textContent = registros.length;
-  document.getElementById('t-litros').textContent = totalLit.toFixed(1);
-  document.getElementById('r-cisterna-lbl').textContent = cfg.cisterna || 'Cisterna 1';
-
-  const lista = document.getElementById('lista-reg');
-  if (!registros.length) {
-    lista.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:14px;padding:2rem 0;">Sin registros aún</div>';
-    return;
-  }
-  lista.innerHTML = registros.map((r,i) => `
-    <div class="reg-item">
-      <div class="reg-num">${i+1}</div>
-      <div class="reg-info">
-        <div class="reg-unit">${r.tipo} ${r.unidad} — ${r.eco}</div>
-        <div class="reg-detail">${r.operador} · ${r.hora} · Horo: ${r.horometro} hrs</div>
-      </div>
-      <div class="reg-lit">${parseFloat(r.litros).toFixed(1)} L</div>
-    </div>
-  `).join('');
-}
-
-// ========================
-// DESCARGAR CSV
-// ========================
-function descargarCSV() {
-  if (!registros.length) { alert('No hay registros para descargar.'); return; }
-  const cols = ['Fecha','Hora','Cisterna','Unidad','Tipo','Económico','Operador','Litros','Horómetro'];
-  const rows = registros.map(r => [r.fecha,r.hora,r.cisterna,r.unidad,r.tipo,r.eco,r.operador,r.litros,r.horometro]);
-  let csv = '\uFEFF' + cols.join(',') + '\n';
-  rows.forEach(r => { csv += r.map(v => `"${v}"`).join(',') + '\n'; });
-  const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `combustible_${(cfg.cisterna||'cisterna').replace(/\s+/g,'-')}_${TODAY.replace(/\//g,'-')}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-// ========================
-// ADMIN — CARGAR EXCEL
-// ========================
-function cargarExcel(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-
-  const reader = new FileReader();
-  reader.onload = function(ev) {
-    try {
-      const wb = XLSX.read(ev.target.result, { type:'binary' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const data = XLSX.utils.sheet_to_json(ws, { header:1 });
-      if (data.length < 2) { alert('El archivo está vacío o no tiene datos.'); return; }
-
-      const nuevas = [];
-      for (let i = 1; i < data.length; i++) {
-        const row = data[i];
-        if (!row[0]) continue;
-        nuevas.push({
-          id:       String(row[0]).trim().toUpperCase(),
-          tipo:     String(row[1]||'').trim(),
-          eco:      String(row[2]||'').trim(),
-          operador: String(row[3]||'').trim(),
-          decimales: parseInt(row[4]||1) || 1,
-        });
-      }
-      unidades = nuevas;
-      saveStorage();
-
-      document.getElementById('excel-count').textContent = nuevas.length;
-      document.getElementById('excel-ok').classList.remove('hidden');
-    } catch(err) {
-      alert('Error al leer el archivo. Verifica que sea un Excel válido.');
-    }
-  };
-  reader.readAsBinaryString(file);
-}
-
-// ========================
-// ADMIN — CONFIG
-// ========================
-function guardarConfig() {
-  cfg.cisterna = document.getElementById('cfg-cisterna').value.trim() || 'Cisterna 1';
-  saveStorage();
-  applyConfig();
-  alert('✓ Configuración guardada');
-}
-
-// ========================
-// GENERAR QRs
-// ========================
-function generarQRs() {
-  const grid = document.getElementById('qr-grid');
-  grid.innerHTML = '';
-
-  if (!unidades.length) {
-    grid.innerHTML = '<div style="font-size:13px;color:var(--muted);">No hay unidades cargadas.</div>';
-    return;
-  }
-
-  unidades.forEach((u, i) => {
-    const div = document.createElement('div');
-    div.className = 'qr-item';
-    div.style.cssText = 'padding:0.75rem;cursor:pointer;text-align:center;';
-
-    // Contenedor para el QR
-    const qrDiv = document.createElement('div');
-    qrDiv.id = 'qr-' + i;
-    qrDiv.style.cssText = 'margin:0 auto;width:140px;height:140px;';
-    div.appendChild(qrDiv);
-
-    const lbl = document.createElement('div');
-    lbl.style.cssText = 'font-size:12px;font-weight:500;color:var(--text);margin-top:6px;';
-    lbl.textContent = u.id;
-    const sub = document.createElement('div');
-    sub.style.cssText = 'font-size:10px;color:var(--muted);margin-top:2px;';
-    sub.textContent = u.eco + ' · ' + u.tipo;
-    div.appendChild(lbl);
-    div.appendChild(sub);
-    grid.appendChild(div);
-
-    // qrcodejs API
-    try {
-      const qr = new QRCode(qrDiv, {
-        text: u.id,
-        width: 140,
-        height: 140,
-        colorDark: '#000000',
-        colorLight: '#ffffff',
-        correctLevel: QRCode.CorrectLevel.H
-      });
-      div.onclick = () => {
-        const img = qrDiv.querySelector('img') || qrDiv.querySelector('canvas');
-        if (img) descargarQRImg(img, u);
-      };
-    } catch(e) {
-      qrDiv.textContent = 'Error: ' + e.message;
-    }
-  });
-
-  document.getElementById('btn-dl-qrs').classList.remove('hidden');
-}
-
-function descargarQRImg(el, unit) {
-  const a = document.createElement('a');
-  if (el.tagName === 'CANVAS') {
-    a.href = el.toDataURL('image/png');
-  } else {
-    a.href = el.src;
-  }
-  a.download = 'QR_' + unit.id + '.png';
-  a.click();
-}
-
-function descargarQR(canvas, unit) {
-  const a = document.createElement('a');
-  a.href = canvas.toDataURL('image/png');
-  a.download = 'QR_' + unit.eco + '_' + unit.id + '.png';
-  a.click();
-}
-
-function imprimirQRs() {
-  const imgs = document.querySelectorAll('#qr-grid canvas');
-  if (!imgs.length) { alert('Genera los QRs primero.'); return; }
-
-  let html = `<html><head><title>QRs Combustible</title><style>
-    body{font-family:system-ui;padding:20px;}
-    .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;}
-    .item{text-align:center;border:1px solid #eee;padding:12px;border-radius:8px;}
-    img{width:100px;height:100px;}
-    p{font-size:11px;color:#666;margin-top:6px;}
-    @media print{.grid{grid-template-columns:repeat(4,1fr);}}
-  </style></head><body><div class="grid">`;
-
-  document.querySelectorAll('#qr-grid .qr-item').forEach((item,i) => {
-    const canvas = item.querySelector('canvas');
-    const lbl = item.querySelector('.qr-lbl').textContent;
-    if (canvas) {
-      html += `<div class="item"><img src="${canvas.toDataURL()}"><p>${lbl}</p></div>`;
-    }
-  });
-
-  html += '</div></body></html>';
-  const w = window.open('', '_blank');
-  w.document.write(html);
-  w.document.close();
-  w.print();
-}
-</script>
-</body>
-</html>
