@@ -21,8 +21,8 @@
 <!-- QRCode generator - compatible Safari -->
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 
-<!-- ZXing para escanear QR - mismo que pase de lista -->
-<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.19.1/umd/index.min.js"></script>
+<!-- jsQR - mismo que pase de lista -->
+<!-- se carga dinámicamente igual que en pase de lista -->
 
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -307,8 +307,8 @@ body { font-family: -apple-system, 'Segoe UI', system-ui, sans-serif; background
       <p style="font-size:13px;color:var(--muted);margin-bottom:0.875rem;">Escanea el QR pegado en la unidad</p>
 
       <div class="qr-wrap">
-        <video id="qr-video" autoplay muted playsinline></video>
-        <canvas id="qr-canvas" class="qr-canvas-scan"></canvas>
+        <video id="qr-video" autoplay muted playsinline webkit-playsinline></video>
+        <canvas id="qr-canvas" style="display:none;position:absolute;"></canvas>
         <div class="qr-overlay">
           <div class="qr-box">
             <div class="qr-corner tl"></div><div class="qr-corner tr"></div>
@@ -673,47 +673,82 @@ function confirmarNuevoDia() {
 }
 
 // ========================
-// QR SCANNER REAL - ZXing
+// QR SCANNER - igual que pase de lista
 // ========================
+let jsqrOk = false;
+let scanning = false;
+let rafId = null;
+let lastQR = '';
+let cvs = document.createElement('canvas');
+let ctx2 = cvs.getContext('2d', { willReadFrequently: true });
+
+// Cargar jsQR dinámicamente igual que el pase de lista
+(function loadJsQR() {
+  const sc = document.createElement('script');
+  sc.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
+  sc.onload = () => { jsqrOk = true; console.log('jsQR cargado OK'); };
+  sc.onerror = () => { console.log('Error cargando jsQR'); };
+  document.head.appendChild(sc);
+})();
+
 function initQRScanner() {
-  const video = document.getElementById('qr-video');
+  const vid = document.getElementById('qr-video');
+  if (!vid) return;
 
-  if (!window.ZXing) {
-    setTimeout(initQRScanner, 500);
-    return;
+  scanning = false;
+  if (rafId) cancelAnimationFrame(rafId);
+  if (camStreams['qr']) {
+    camStreams['qr'].getTracks().forEach(t => t.stop());
+    camStreams['qr'] = null;
   }
+  vid.srcObject = null;
+  lastQR = '';
 
-  const hints = new Map();
-  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-
-  const codeReader = new ZXing.BrowserMultiFormatReader(hints, 200); // 200ms entre escaneos = más rápido
-  window._codeReader = codeReader;
-
-  codeReader.listVideoInputDevices().then(devices => {
-    // Preferir cámara trasera
-    let deviceId = undefined;
-    const back = devices.find(d => /back|rear|environment/i.test(d.label));
-    if (back) deviceId = back.deviceId;
-    else if (devices.length > 0) deviceId = devices[devices.length - 1].deviceId;
-
-    codeReader.decodeFromVideoDevice(deviceId, 'qr-video', (result, err) => {
-      if (result) {
-        procesarQR(result.getText());
-      }
-    });
-  }).catch(err => {
-    // Fallback: decodificar directo sin seleccionar dispositivo
-    codeReader.decodeFromVideoDevice(undefined, 'qr-video', (result, err) => {
-      if (result) procesarQR(result.getText());
-    });
+  navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+  }).then(stream => {
+    camStreams['qr'] = stream;
+    vid.srcObject = stream;
+    vid.onloadedmetadata = () => {
+      vid.play();
+      scanning = true;
+      rafId = requestAnimationFrame(tick);
+    };
+  }).catch(() => {
+    vid.parentElement.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,0.6);font-size:13px;text-align:center;padding:1rem;">Cámara no disponible.<br>Usa el ingreso manual.</div>';
   });
 }
 
+function tick() {
+  if (!scanning) return;
+  rafId = requestAnimationFrame(tick);
+  const vid = document.getElementById('qr-video');
+  if (!vid || !jsqrOk || vid.readyState < 2 || vid.paused) return;
+  const w = vid.videoWidth, h = vid.videoHeight;
+  if (!w || !h) return;
+  cvs.width = w; cvs.height = h;
+  ctx2.drawImage(vid, 0, 0, w, h);
+  try {
+    const img = ctx2.getImageData(0, 0, w, h);
+    const code = jsQR(img.data, w, h, { inversionAttempts: 'attemptBoth' });
+    if (code && code.data && code.data !== lastQR) {
+      lastQR = code.data;
+      procesarQR(code.data);
+    }
+  } catch(e) {}
+}
+
 function stopQRScanner() {
-  if (window._codeReader) {
-    window._codeReader.reset();
-    window._codeReader = null;
+  scanning = false;
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  const vid = document.getElementById('qr-video');
+  if (vid) { vid.srcObject = null; }
+  if (camStreams['qr']) {
+    camStreams['qr'].getTracks().forEach(t => t.stop());
+    camStreams['qr'] = null;
   }
+  lastQR = '';
 }
 
 function procesarQR(data) {
