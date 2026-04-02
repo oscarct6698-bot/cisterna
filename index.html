@@ -818,7 +818,7 @@ function buscarUnidad(unitId) {
 
   const unit = unidades.find(u => u.id === unitId);
   if (!unit) {
-    alert(`Unidad "${unitId}" no encontrada. Verifica el ID o actualiza el Excel de asignaciones.`);
+    alert("QR leído: [" + unitId + "] — No encontrada en el sistema.");
     setTimeout(initQRScanner, 300);
     return;
   }
