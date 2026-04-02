@@ -52,7 +52,7 @@ body { font-family: -apple-system, 'Segoe UI', system-ui, sans-serif; background
 .header-left { display: flex; flex-direction: column; }
 .header-title { font-size: 15px; font-weight: 500; }
 .header-sub { font-size: 11px; color: #B4B2A9; margin-top: 1px; }
-.badge { background: var(--amber-mid); color: #412402; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px; }
+.badge { background: var(--amber); color: #412402; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px; }
 
 /* TABS */
 .tab-bar {
@@ -60,7 +60,7 @@ body { font-family: -apple-system, 'Segoe UI', system-ui, sans-serif; background
   display: flex; flex-shrink: 0; z-index: 90;
 }
 .tab { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 500; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; transition: all 0.15s; user-select: none; }
-.tab.active { color: var(--amber); border-bottom-color: var(--amber-mid); }
+.tab.active { color: var(--amber); border-bottom-color: var(--amber); }
 
 /* CONTENT */
 .content { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
@@ -75,7 +75,7 @@ body { font-family: -apple-system, 'Segoe UI', system-ui, sans-serif; background
 .btn { display: block; width: 100%; padding: 0.75rem 1rem; border-radius: var(--rs); font-size: 15px; font-weight: 500; cursor: pointer; text-align: center; border: none; transition: opacity 0.12s, transform 0.1s; font-family: inherit; line-height: 1; }
 .btn:active { transform: scale(0.97); opacity: 0.8; }
 .btn-primary { background: var(--gray-dark); color: #fff; }
-.btn-amber { background: var(--amber-mid); color: #412402; }
+.btn-amber { background: var(--amber); color: #412402; }
 .btn-teal { background: var(--teal-mid); color: var(--teal-dark); }
 .btn-outline { background: transparent; border: 1px solid rgba(0,0,0,0.15); color: var(--text); }
 .btn-danger { background: var(--red-light); color: var(--red); border: 1px solid var(--red-border); }
@@ -89,13 +89,13 @@ body { font-family: -apple-system, 'Segoe UI', system-ui, sans-serif; background
 .input-group { margin-bottom: 0.75rem; }
 .label { font-size: 12px; color: var(--muted); margin-bottom: 4px; display: block; font-weight: 500; }
 .input { width: 100%; padding: 0.6rem 0.875rem; border: 1px solid rgba(0,0,0,0.12); border-radius: var(--rs); font-size: 15px; background: var(--card); color: var(--text); outline: none; font-family: inherit; }
-.input:focus { border-color: var(--amber-mid); box-shadow: 0 0 0 3px rgba(239,159,39,0.12); }
+.input:focus { border-color: var(--amber); box-shadow: 0 0 0 3px rgba(239,159,39,0.12); }
 
 /* STEP BAR */
 .steps { display: flex; align-items: center; margin-bottom: 1rem; padding-top: 0.25rem; }
 .step-dot { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; flex-shrink: 0; }
 .step-dot.done { background: var(--teal-mid); color: var(--teal-dark); }
-.step-dot.active { background: var(--amber-mid); color: var(--amber-dark); }
+.step-dot.active { background: var(--amber); color: var(--amber-dark); }
 .step-dot.pending { background: var(--gray-light); color: var(--muted); }
 .step-line { flex: 1; height: 1px; background: var(--border); margin: 0 4px; }
 .step-line.done { background: var(--teal-mid); }
@@ -106,12 +106,12 @@ body { font-family: -apple-system, 'Segoe UI', system-ui, sans-serif; background
 .qr-canvas-scan { display: none; }
 .qr-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
 .qr-box { width: 62%; aspect-ratio: 1; border: 2px solid rgba(255,255,255,0.5); border-radius: 10px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.5); position: relative; }
-.qr-corner { position: absolute; width: 20px; height: 20px; border-color: var(--amber-mid); border-style: solid; }
+.qr-corner { position: absolute; width: 20px; height: 20px; border-color: var(--amber); border-style: solid; }
 .qr-corner.tl { top: -1.5px; left: -1.5px; border-width: 3px 0 0 3px; border-radius: 4px 0 0 0; }
 .qr-corner.tr { top: -1.5px; right: -1.5px; border-width: 3px 3px 0 0; border-radius: 0 4px 0 0; }
 .qr-corner.bl { bottom: -1.5px; left: -1.5px; border-width: 0 0 3px 3px; border-radius: 0 0 0 4px; }
 .qr-corner.br { bottom: -1.5px; right: -1.5px; border-width: 0 3px 3px 0; border-radius: 0 0 4px 0; }
-.scan-line { position: absolute; left: 5%; right: 5%; height: 2px; background: linear-gradient(90deg,transparent,var(--amber-mid),transparent); animation: scanLine 2s ease-in-out infinite; }
+.scan-line { position: absolute; left: 5%; right: 5%; height: 2px; background: linear-gradient(90deg,transparent,var(--amber),transparent); animation: scanLine 2s ease-in-out infinite; }
 @keyframes scanLine { 0%,100%{top:8%} 50%{top:87%} }
 .qr-hint { position: absolute; bottom: 10px; left: 0; right: 0; text-align: center; color: rgba(255,255,255,0.75); font-size: 12px; }
 
@@ -194,7 +194,7 @@ body { font-family: -apple-system, 'Segoe UI', system-ui, sans-serif; background
 
 /* OCR progress */
 .ocr-progress { height: 3px; background: var(--amber-light); border-radius: 2px; overflow: hidden; margin-top: 8px; display: none; }
-.ocr-progress-bar { height: 100%; background: var(--amber-mid); width: 0%; transition: width 0.3s; }
+.ocr-progress-bar { height: 100%; background: var(--amber); width: 0%; transition: width 0.3s; }
 
 /* CONN STATUS */
 .conn-dot { width: 7px; height: 7px; border-radius: 50%; background: #888; display: inline-block; margin-right: 4px; }
@@ -786,17 +786,14 @@ function stopQRScanner() {
 }
 
 function procesarQR(data) {
-  stopQRScanner();
-
+  // NO detener scanner aquí — hacerlo después
   let unitId = data.trim().toUpperCase();
   try {
     const parsed = JSON.parse(data);
     if (parsed.id) unitId = parsed.id.trim().toUpperCase();
   } catch(e) {}
 
-  console.log('QR leído:', data, '→ unitId:', unitId);
-  console.log('Unidades disponibles:', unidades.map(u=>u.id));
-
+  if(navigator.vibrate) navigator.vibrate(80);
   // Vibrar si está disponible
   if (navigator.vibrate) navigator.vibrate(80);
 
@@ -812,6 +809,7 @@ function buscarManual() {
 function buscarUnidad(unitId) {
   // Verificar duplicado (local + firebase)
   if (cargadas.includes(unitId)) {
+    stopQRScanner();
     document.getElementById('m-dup-body').textContent =
       `La unidad ${unitId} ya fue cargada hoy. No es posible registrar una segunda carga.`;
     showModal('m-dup');
@@ -826,6 +824,7 @@ function buscarUnidad(unitId) {
     return;
   }
 
+  stopQRScanner();
   cur.unit = unit;
   mostrarUnidad(unit);
 }
