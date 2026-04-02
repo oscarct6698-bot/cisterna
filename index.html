@@ -568,40 +568,61 @@ function retomar(tipo){
 }
 
 // ── OCR MEJORADO ──
-function prepImg(dataURL, modo) {
+// ── OCR CON ANTHROPIC VISION API (la más potente) ──
+function prepImg(dataURL) {
   return new Promise(function(resolve){
     var img=new Image();
     img.onload=function(){
-      var W=img.width||img.naturalWidth||640;
-      var H=img.height||img.naturalHeight||480;
-      // Recortar zona central (rectángulo guía)
+      var W=img.width||640, H=img.height||480;
+      // Recortar zona del rectángulo guía
       var sx=W*0.07, sy=H*0.28, sw=W*0.86, sh=H*0.44;
-      var versiones=[];
-      [[2,'normal'],[2,'binario'],[2,'invertido'],[3,'normal'],[3,'binario']].forEach(function(cfg){
-        var sc=cfg[0], filtro=cfg[1];
-        var c=document.createElement('canvas');
-        c.width=Math.round(sw*sc); c.height=Math.round(sh*sc);
-        var ctx=c.getContext('2d');
-        ctx.fillStyle='#fff'; ctx.fillRect(0,0,c.width,c.height);
-        ctx.drawImage(img,sx,sy,sw,sh,0,0,c.width,c.height);
-        if(filtro!=='normal'){
-          var id=ctx.getImageData(0,0,c.width,c.height);
-          var d=id.data;
-          for(var i=0;i<d.length;i+=4){
-            var g=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
-            if(filtro==='binario') g=g>128?255:0;
-            else if(filtro==='invertido') g=g>128?0:255;
-            d[i]=d[i+1]=d[i+2]=g; d[i+3]=255;
-          }
-          ctx.putImageData(id,0,0);
-        }
-        versiones.push(c.toDataURL('image/png'));
-      });
-      resolve(versiones);
+      var c=document.createElement('canvas');
+      c.width=Math.round(sw*2); c.height=Math.round(sh*2);
+      var ctx=c.getContext('2d');
+      ctx.fillStyle='#fff'; ctx.fillRect(0,0,c.width,c.height);
+      ctx.drawImage(img,sx,sy,sw,sh,0,0,c.width,c.height);
+      resolve(c.toDataURL('image/jpeg',0.95));
     };
-    img.onerror=function(){resolve([dataURL]);};
+    img.onerror=function(){resolve(dataURL);};
     img.src=dataURL;
   });
+}
+
+async function ocrConClaude(dataURL, tipo) {
+  // Convertir a base64
+  var base64 = dataURL.split(',')[1];
+  var mediaType = 'image/jpeg';
+
+  var prompt = tipo === 'lit'
+    ? 'Esta imagen muestra el medidor de litros de una bomba de combustible. Lee el número que aparece en el display o medidor. Responde ÚNICAMENTE con el número, sin texto adicional, sin unidades, solo el número (ejemplo: 320 o 1250.5).'
+    : 'Esta imagen muestra el horómetro de una máquina o vehículo. Lee el número que aparece. El último dígito es decimal (ejemplo: si ves 10243, el número es 1024.3). Responde ÚNICAMENTE con el número sin procesar tal como aparece en el display, sin texto adicional (ejemplo: 10243 o 5678).';
+
+  try {
+    var response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 50,
+        messages: [{
+          role: 'user',
+          content: [
+            {type: 'image', source: {type: 'base64', media_type: mediaType, data: base64}},
+            {type: 'text', text: prompt}
+          ]
+        }]
+      })
+    });
+    var data = await response.json();
+    if(data.content && data.content[0] && data.content[0].text) {
+      var txt = data.content[0].text.trim();
+      console.log('Claude OCR resultado:', txt);
+      return txt.replace(/[^0-9.]/g,'').trim();
+    }
+  } catch(e) {
+    console.log('Claude OCR error:', e);
+  }
+  return '';
 }
 
 async function procesarOCR(tipo, dataURL, mockText){
@@ -614,45 +635,38 @@ async function procesarOCR(tipo, dataURL, mockText){
 
   ocrEl.classList.add('on');
   progEl.style.display='block';
-  bodyEl.innerHTML='<span class="spin"></span>Preparando imagen...';
+  bodyEl.innerHTML='<span class="spin"></span>Analizando imagen con IA...';
+  progBar.style.width='30%';
 
   var rawText=mockText;
 
   if(!mockText && dataURL){
-    // Esperar Tesseract
-    var tries=0;
-    while(!TES&&tries<20){await new Promise(function(r){setTimeout(r,300);});tries++;}
+    // Recortar zona importante
+    var recortada = await prepImg(dataURL);
+    progBar.style.width='50%';
+    bodyEl.innerHTML='<span class="spin"></span>Leyendo número...';
 
-    if(TES){
+    // Intentar con Claude Vision API primero (más potente)
+    rawText = await ocrConClaude(recortada, tipo);
+    progBar.style.width='80%';
+
+    // Si Claude no pudo, intentar con Tesseract como fallback
+    if(!rawText && TES){
       try{
-        var versiones=await prepImg(dataURL, tipo);
+        bodyEl.innerHTML='<span class="spin"></span>Procesando con OCR local...';
         var worker=await TES.createWorker('eng');
         await worker.setParameters({
           tessedit_char_whitelist:'0123456789.',
           tessedit_pageseg_mode:'8',
           tessedit_ocr_engine_mode:'1',
         });
-
-        var mejor='', mejorConf=0;
-        for(var i=0;i<versiones.length;i++){
-          progBar.style.width=Math.round((i/versiones.length)*100)+'%';
-          bodyEl.innerHTML='<span class="spin"></span>Leyendo... ('+(i+1)+'/'+versiones.length+')';
-          try{
-            var res=await worker.recognize(versiones[i]);
-            var txt=res.data.text.replace(/[^0-9.]/g,'').trim();
-            var conf=res.data.confidence||0;
-            console.log('v'+i+':',txt,'conf:',conf);
-            if(txt&&txt.length>=1&&(conf>mejorConf||!mejor)){
-              mejorConf=conf; mejor=txt;
-            }
-            if(mejor&&conf>65)break;
-          }catch(e){}
-        }
+        var res=await worker.recognize(recortada);
+        rawText=res.data.text.replace(/[^0-9.]/g,'').trim();
         await worker.terminate();
-        rawText=mejor;
-        progBar.style.width='100%';
-      }catch(e){console.log('OCR err:',e);rawText='';}
+        console.log('Tesseract fallback:', rawText);
+      }catch(e){rawText='';}
     }
+    progBar.style.width='100%';
   }
 
   progEl.style.display='none';
@@ -666,7 +680,7 @@ async function procesarOCR(tipo, dataURL, mockText){
     return;
   }
 
-  // Formatear
+  // Formatear número
   var formatted,hint;
   if(tipo==='lit'){
     var num=parseFloat(rawText);
@@ -680,45 +694,13 @@ async function procesarOCR(tipo, dataURL, mockText){
       cur.horo=raw.slice(0,raw.length-dec)+'.'+raw.slice(raw.length-dec);
       formatted=cur.horo+' hrs';
     } else {cur.horo=rawText;formatted=rawText+' hrs';}
-    hint='OCR: "'+raw+'" → '+formatted+' ('+dec+' dec.)';
+    hint='Leído: "'+raw+'" → '+formatted+' ('+dec+' decimal'+(dec>1?'es':'')+')';
   }
 
   bodyEl.innerHTML='<div class="ocr-num">'+formatted+'</div><div class="ocr-sub">'+hint+'</div>';
   btns.classList.remove('hidden');
 }
 
-function validar(tipo){
-  cur.ocrTipo=tipo;
-  if(tipo==='lit'&&!cur.litros){
-    var v=parseFloat(document.getElementById('lit-inp').value);
-    if(isNaN(v)){alert('Ingresa los litros.');return;}
-    cur.litros=v;
-  }
-  if(tipo==='horo'&&!cur.horo){
-    var v=document.getElementById('horo-inp').value.trim();
-    if(!v){alert('Ingresa el horómetro.');return;}
-    cur.horo=v;
-  }
-  var num=tipo==='lit'?cur.litros.toFixed(1)+' L':cur.horo+' hrs';
-  document.getElementById('m-ocr-num').textContent=num;
-  document.getElementById('m-ocr-hint').textContent=tipo==='lit'?'¿Los litros cargados son correctos?':'¿El horómetro es correcto?';
-  sm('m-ocr');
-}
-
-function aceptar(){
-  cm('m-ocr');
-  if(cur.ocrTipo==='lit')document.getElementById('btn-horo').classList.remove('hidden');
-  else document.getElementById('btn-guardar').classList.remove('hidden');
-}
-
-function rechazar(){
-  cm('m-ocr');
-  var mid=cur.ocrTipo==='lit'?'lit-man':'horo-man';
-  document.getElementById(mid).classList.remove('hidden');
-  document.getElementById(mid).querySelector('input').focus();
-  if(cur.ocrTipo==='lit')document.getElementById('btn-horo').classList.remove('hidden');
-  else document.getElementById('btn-guardar').classList.remove('hidden');
-}
 
 // ── GUARDAR ──
 function guardar(){
