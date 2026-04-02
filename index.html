@@ -734,11 +734,15 @@ function initQRScanner() {
 function procesarQR(data) {
   if (qrLoop) { cancelAnimationFrame(qrLoop); qrLoop = null; }
 
-  let unitId = data;
+  let unitId = data.trim().toUpperCase();
+  // Intentar parsear JSON por compatibilidad con QRs anteriores
   try {
     const parsed = JSON.parse(data);
-    unitId = parsed.id || data;
-  } catch(e) { unitId = data.trim().toUpperCase(); }
+    if (parsed.id) unitId = parsed.id.trim().toUpperCase();
+  } catch(e) {}
+
+  // Vibrar si está disponible
+  if (navigator.vibrate) navigator.vibrate(80);
 
   buscarUnidad(unitId);
 }
@@ -1182,32 +1186,44 @@ function generarQRs() {
   grid.innerHTML = '';
 
   if (!unidades.length) {
-    grid.innerHTML = '<div style="font-size:13px;color:var(--muted);">Sube primero el Excel de asignaciones.</div>';
+    grid.innerHTML = '<div style="font-size:13px;color:var(--muted);">No hay unidades cargadas.</div>';
     return;
   }
 
+  let done = 0;
   unidades.forEach(u => {
     const div = document.createElement('div');
     div.className = 'qr-item';
+    div.style.cssText = 'padding:0.75rem;cursor:pointer;text-align:center;';
+    grid.appendChild(div);
 
     const canvas = document.createElement('canvas');
-    canvas.style.cssText = 'width:80px;height:80px;';
-
-    QRCode.toCanvas(canvas, JSON.stringify({ id:u.id, tipo:u.tipo, eco:u.eco }), { width:80, margin:1 }, err => {
-      if (err) canvas.style.background = '#eee';
+    // QR solo con el ID — más simple y fácil de leer con cualquier escáner
+    QRCode.toCanvas(canvas, u.id, {
+      width: 140,
+      margin: 2,
+      errorCorrectionLevel: 'H',
+      color: { dark: '#000000', light: '#ffffff' }
+    }, err => {
+      if (!err) {
+        canvas.style.cssText = 'display:block;margin:0 auto;width:140px;height:140px;';
+        div.appendChild(canvas);
+      }
+      const lbl = document.createElement('div');
+      lbl.style.cssText = 'font-size:12px;font-weight:500;color:var(--text);margin-top:6px;';
+      lbl.textContent = u.id;
+      const sub = document.createElement('div');
+      sub.style.cssText = 'font-size:10px;color:var(--muted);margin-top:2px;';
+      sub.textContent = u.eco + ' · ' + u.tipo;
+      div.appendChild(lbl);
+      div.appendChild(sub);
+      div.onclick = () => { if(canvas) descargarQR(canvas, u); };
+      done++;
+      if (done === unidades.length) {
+        document.getElementById('btn-dl-qrs').classList.remove('hidden');
+      }
     });
-
-    const lbl = document.createElement('div');
-    lbl.className = 'qr-lbl';
-    lbl.textContent = u.eco + ' · ' + u.tipo;
-
-    div.appendChild(canvas);
-    div.appendChild(lbl);
-    div.onclick = () => descargarQR(canvas, u);
-    grid.appendChild(div);
   });
-
-  document.getElementById('btn-dl-qrs').classList.remove('hidden');
 }
 
 function descargarQR(canvas, unit) {
