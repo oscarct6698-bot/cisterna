@@ -18,8 +18,8 @@
 <!-- SheetJS para leer Excel -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
-<!-- QRCode generator -->
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<!-- QRCode generator - compatible Safari -->
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 
 <!-- jsQR para escanear QR desde cámara -->
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
@@ -1190,46 +1190,64 @@ function generarQRs() {
     return;
   }
 
-  let done = 0;
-  unidades.forEach(u => {
+  unidades.forEach((u, i) => {
     const div = document.createElement('div');
     div.className = 'qr-item';
     div.style.cssText = 'padding:0.75rem;cursor:pointer;text-align:center;';
+
+    // Contenedor para el QR
+    const qrDiv = document.createElement('div');
+    qrDiv.id = 'qr-' + i;
+    qrDiv.style.cssText = 'margin:0 auto;width:140px;height:140px;';
+    div.appendChild(qrDiv);
+
+    const lbl = document.createElement('div');
+    lbl.style.cssText = 'font-size:12px;font-weight:500;color:var(--text);margin-top:6px;';
+    lbl.textContent = u.id;
+    const sub = document.createElement('div');
+    sub.style.cssText = 'font-size:10px;color:var(--muted);margin-top:2px;';
+    sub.textContent = u.eco + ' · ' + u.tipo;
+    div.appendChild(lbl);
+    div.appendChild(sub);
     grid.appendChild(div);
 
-    const canvas = document.createElement('canvas');
-    // QR solo con el ID — más simple y fácil de leer con cualquier escáner
-    QRCode.toCanvas(canvas, u.id, {
-      width: 140,
-      margin: 2,
-      errorCorrectionLevel: 'H',
-      color: { dark: '#000000', light: '#ffffff' }
-    }, err => {
-      if (!err) {
-        canvas.style.cssText = 'display:block;margin:0 auto;width:140px;height:140px;';
-        div.appendChild(canvas);
-      }
-      const lbl = document.createElement('div');
-      lbl.style.cssText = 'font-size:12px;font-weight:500;color:var(--text);margin-top:6px;';
-      lbl.textContent = u.id;
-      const sub = document.createElement('div');
-      sub.style.cssText = 'font-size:10px;color:var(--muted);margin-top:2px;';
-      sub.textContent = u.eco + ' · ' + u.tipo;
-      div.appendChild(lbl);
-      div.appendChild(sub);
-      div.onclick = () => { if(canvas) descargarQR(canvas, u); };
-      done++;
-      if (done === unidades.length) {
-        document.getElementById('btn-dl-qrs').classList.remove('hidden');
-      }
-    });
+    // qrcodejs API
+    try {
+      const qr = new QRCode(qrDiv, {
+        text: u.id,
+        width: 140,
+        height: 140,
+        colorDark: '#000000',
+        colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.H
+      });
+      div.onclick = () => {
+        const img = qrDiv.querySelector('img') || qrDiv.querySelector('canvas');
+        if (img) descargarQRImg(img, u);
+      };
+    } catch(e) {
+      qrDiv.textContent = 'Error: ' + e.message;
+    }
   });
+
+  document.getElementById('btn-dl-qrs').classList.remove('hidden');
+}
+
+function descargarQRImg(el, unit) {
+  const a = document.createElement('a');
+  if (el.tagName === 'CANVAS') {
+    a.href = el.toDataURL('image/png');
+  } else {
+    a.href = el.src;
+  }
+  a.download = 'QR_' + unit.id + '.png';
+  a.click();
 }
 
 function descargarQR(canvas, unit) {
   const a = document.createElement('a');
   a.href = canvas.toDataURL('image/png');
-  a.download = `QR_${unit.eco}_${unit.id}.png`;
+  a.download = 'QR_' + unit.eco + '_' + unit.id + '.png';
   a.click();
 }
 
