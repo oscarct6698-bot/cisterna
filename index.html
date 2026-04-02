@@ -754,9 +754,13 @@ function initQRScanner() {
   });
 }
 
-function tick() {
+let lastTickTime = 0;
+function tick(ts) {
   if (!scanning) return;
   rafId = requestAnimationFrame(tick);
+  // Escanear cada 50ms = ~20 veces por segundo
+  if (ts - lastTickTime < 50) return;
+  lastTickTime = ts;
   const vid = document.getElementById('qr-video');
   if (!vid || !jsqrOk || vid.readyState < 2 || vid.paused) return;
   const w = vid.videoWidth, h = vid.videoHeight;
@@ -923,6 +927,37 @@ function simularCaptura(tipo) {
 // ========================
 // OCR CON TESSERACT
 // ========================
+// Preprocesar imagen para mejorar OCR
+function preprocessImage(dataURL) {
+  const img = new Image();
+  img.src = dataURL;
+  const c = document.createElement('canvas');
+  // Escalar imagen 2x para mejor detección
+  const scale = 2;
+  c.width = img.naturalWidth * scale || 1280;
+  c.height = img.naturalHeight * scale || 960;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0, c.width, c.height);
+  
+  // Aplicar filtros: escala de grises + aumento de contraste
+  const imageData = ctx.getImageData(0, 0, c.width, c.height);
+  const d = imageData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    // Escala de grises
+    const gray = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+    // Aumentar contraste
+    const contrast = 1.8;
+    const factor = (259 * (contrast * 255 + 255)) / (255 * (259 - contrast * 255));
+    const val = Math.min(255, Math.max(0, factor * (gray - 128) + 128));
+    // Binarizar - umbral adaptativo
+    const binary = val > 128 ? 255 : 0;
+    d[i] = d[i+1] = d[i+2] = binary;
+    d[i+3] = 255;
+  }
+  ctx.putImageData(imageData, 0, 0);
+  return c.toDataURL('image/png');
+}
+
 async function procesarOCR(tipo, dataURL, mockText) {
   const ocrId = tipo === 'lit' ? 'ocr-lit' : 'ocr-horo';
   const innerId = tipo === 'lit' ? 'ocr-lit-inner' : 'ocr-horo-inner';
@@ -938,6 +973,8 @@ async function procesarOCR(tipo, dataURL, mockText) {
 
   if (!mockText && dataURL) {
     try {
+      // Preprocesar imagen para mejor OCR
+      const processedURL = preprocessImage(dataURL);
       const worker = await Tesseract.createWorker('eng', 1, {
         logger: m => {
           if (m.status === 'recognizing text') {
@@ -948,9 +985,10 @@ async function procesarOCR(tipo, dataURL, mockText) {
       });
       await worker.setParameters({
         tessedit_char_whitelist: '0123456789.',
-        tessedit_pageseg_mode: '7',
+        tessedit_pageseg_mode: '8', // modo single word - mejor para números
+        tessedit_ocr_engine_mode: '1', // LSTM neural net
       });
-      const { data } = await worker.recognize(dataURL);
+      const { data } = await worker.recognize(processedURL);
       rawText = data.text.replace(/[^0-9.]/g, '').trim();
       await worker.terminate();
     } catch(e) {
