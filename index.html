@@ -939,8 +939,8 @@ function preprocesar(dataURL, modo) {
       [1.5, 2, 3].forEach(scale => {
         ['original', 'binario', 'invertido', 'alto_contraste'].forEach(filtro => {
           const c = document.createElement('canvas');
-          c.width = img.naturalWidth * scale;
-          c.height = img.naturalHeight * scale;
+          c.width = (img.width || img.naturalWidth || 640) * scale;
+          c.height = (img.height || img.naturalHeight || 480) * scale;
           const ctx = c.getContext('2d');
           
           // Dibujar imagen escalada
@@ -979,18 +979,23 @@ function recortarRegion(dataURL) {
   return new Promise(resolve => {
     const img = new Image();
     img.onload = () => {
+      const w = img.width || img.naturalWidth || 640;
+      const h = img.height || img.naturalHeight || 480;
       const c = document.createElement('canvas');
       // Recortar el 84% ancho x 42% alto central (igual que el rectángulo guía)
-      const sx = img.naturalWidth * 0.08;
-      const sy = img.naturalHeight * 0.29;
-      const sw = img.naturalWidth * 0.84;
-      const sh = img.naturalHeight * 0.42;
-      c.width = sw * 2; // escalar 2x
-      c.height = sh * 2;
+      const sx = w * 0.08;
+      const sy = h * 0.29;
+      const sw = w * 0.84;
+      const sh = h * 0.42;
+      c.width = Math.max(sw * 2, 100);
+      c.height = Math.max(sh * 2, 100);
       const ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, c.width, c.height);
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
       resolve(c.toDataURL('image/png'));
     };
+    img.onerror = () => resolve(dataURL); // fallback: usar imagen original
     img.src = dataURL;
   });
 }
