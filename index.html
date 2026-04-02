@@ -789,11 +789,13 @@ function procesarQR(data) {
   stopQRScanner();
 
   let unitId = data.trim().toUpperCase();
-  // Intentar parsear JSON por compatibilidad con QRs anteriores
   try {
     const parsed = JSON.parse(data);
     if (parsed.id) unitId = parsed.id.trim().toUpperCase();
   } catch(e) {}
+
+  console.log('QR leído:', data, '→ unitId:', unitId);
+  console.log('Unidades disponibles:', unidades.map(u=>u.id));
 
   // Vibrar si está disponible
   if (navigator.vibrate) navigator.vibrate(80);
@@ -816,6 +818,7 @@ function buscarUnidad(unitId) {
     return;
   }
 
+  console.log("Buscando:", unitId, "en", unidades.length, "unidades");
   const unit = unidades.find(u => u.id === unitId);
   if (!unit) {
     alert("QR leído: [" + unitId + "] — No encontrada en el sistema.");
