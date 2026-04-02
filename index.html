@@ -26,6 +26,7 @@
 
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+video { width:100%; height:100%; object-fit:cover; display:block; }
 :root {
   --amber: #BA7517; --amber-light: #FAEEDA; --amber-mid: #EF9F27; --amber-dark: #633806;
   --teal: #0F6E56; --teal-light: #E1F5EE; --teal-mid: #1D9E75; --teal-dark: #04342C;
@@ -307,7 +308,7 @@ body { font-family: -apple-system, 'Segoe UI', system-ui, sans-serif; background
       <p style="font-size:13px;color:var(--muted);margin-bottom:0.875rem;">Escanea el QR pegado en la unidad</p>
 
       <div class="qr-wrap">
-        <video id="qr-video" autoplay muted playsinline webkit-playsinline></video>
+        <video id="qr-video" autoplay playsinline muted webkit-playsinline x5-playsinline x5-video-player-type="h5" style="width:100%;height:100%;object-fit:cover;display:block;background:#000;"></video>
         <canvas id="qr-canvas" style="display:none;position:absolute;"></canvas>
         <div class="qr-overlay">
           <div class="qr-box">
@@ -523,6 +524,14 @@ body { font-family: -apple-system, 'Segoe UI', system-ui, sans-serif; background
 const TODAY = new Date().toLocaleDateString('es-MX', {day:'2-digit',month:'2-digit',year:'numeric'});
 const TODAY_KEY = new Date().toDateString();
 
+// Variables del scanner - deben declararse antes que todo
+let jsqrOk = false;
+let scanning = false;
+let rafId = null;
+let lastQR = '';
+let cvs = document.createElement('canvas');
+let ctx2 = cvs.getContext('2d', { willReadFrequently: true });
+
 let cfg = JSON.parse(localStorage.getItem('cfg') || '{}');
 let unidades = JSON.parse(localStorage.getItem('unidades') || '[]');
 let registros = JSON.parse(localStorage.getItem('registros') || '[]');
@@ -675,13 +684,6 @@ function confirmarNuevoDia() {
 // ========================
 // QR SCANNER - igual que pase de lista
 // ========================
-let jsqrOk = false;
-let scanning = false;
-let rafId = null;
-let lastQR = '';
-let cvs = document.createElement('canvas');
-let ctx2 = cvs.getContext('2d', { willReadFrequently: true });
-
 // Cargar jsQR dinámicamente igual que el pase de lista
 (function loadJsQR() {
   const sc = document.createElement('script');
@@ -710,11 +712,27 @@ function initQRScanner() {
   }).then(stream => {
     camStreams['qr'] = stream;
     vid.srcObject = stream;
+    vid.setAttribute('playsinline', '');
+    vid.setAttribute('webkit-playsinline', '');
+    vid.muted = true;
     vid.onloadedmetadata = () => {
-      vid.play();
-      scanning = true;
-      rafId = requestAnimationFrame(tick);
+      vid.play().then(() => {
+        scanning = true;
+        rafId = requestAnimationFrame(tick);
+      }).catch(e => {
+        // En Safari a veces necesita interacción del usuario primero
+        scanning = true;
+        rafId = requestAnimationFrame(tick);
+      });
     };
+    // Fallback por si onloadedmetadata no dispara
+    setTimeout(() => {
+      if (!scanning && stream.active) {
+        vid.play().catch(()=>{});
+        scanning = true;
+        rafId = requestAnimationFrame(tick);
+      }
+    }, 2000);
   }).catch(() => {
     vid.parentElement.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,0.6);font-size:13px;text-align:center;padding:1rem;">Cámara no disponible.<br>Usa el ingreso manual.</div>';
   });
