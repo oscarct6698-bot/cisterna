@@ -712,8 +712,52 @@ async function procesarOCR(tipo, dataURL, mockText){
     hint='Leído: "'+raw+'" → '+formatted+' ('+dec+' decimal'+(dec>1?'es':'')+')';
   }
 
+  // Guardar en cur para que validar() lo use
+  if(tipo==='lit'){
+    cur.litros = isNaN(parseFloat(rawText)) ? null : parseFloat(rawText);
+  } else {
+    var dec2=cur.unit?cur.unit.decimales:1;
+    var r2=rawText.replace(/[^0-9]/g,'');
+    cur.horo = r2.length>dec2 ? r2.slice(0,r2.length-dec2)+'.'+r2.slice(r2.length-dec2) : rawText;
+  }
+
   bodyEl.innerHTML='<div class="ocr-num">'+formatted+'</div><div class="ocr-sub">'+hint+'</div>';
   btns.classList.remove('hidden');
+}
+
+// ── VALIDAR OCR ──
+function validar(tipo){
+  // Si hay valor manual, usarlo
+  if(tipo==='lit'){
+    var manVal=document.getElementById('lit-inp').value.trim();
+    if(manVal) cur.litros=parseFloat(manVal);
+    if(!cur.litros){alert('No hay número de litros. Retoma la foto o ingresa manualmente.');return;}
+    document.getElementById('m-ocr-num').textContent=cur.litros.toFixed(1)+' L';
+    document.getElementById('m-ocr-hint').textContent='¿Los litros cargados son correctos?';
+  } else {
+    var manVal=document.getElementById('horo-inp').value.trim();
+    if(manVal) cur.horo=manVal;
+    if(!cur.horo){alert('No hay número de horómetro. Retoma la foto o ingresa manualmente.');return;}
+    document.getElementById('m-ocr-num').textContent=cur.horo+' hrs';
+    document.getElementById('m-ocr-hint').textContent='¿El horómetro es correcto?';
+  }
+  cur.ocrTipo=tipo;
+  sm('m-ocr');
+}
+
+function aceptar(){
+  cm('m-ocr');
+  if(cur.ocrTipo==='lit') document.getElementById('btn-horo').classList.remove('hidden');
+  else document.getElementById('btn-guardar').classList.remove('hidden');
+}
+
+function rechazar(){
+  cm('m-ocr');
+  var mid=cur.ocrTipo==='lit'?'lit-man':'horo-man';
+  document.getElementById(mid).classList.remove('hidden');
+  document.getElementById(mid).querySelector('input').focus();
+  if(cur.ocrTipo==='lit') document.getElementById('btn-horo').classList.remove('hidden');
+  else document.getElementById('btn-guardar').classList.remove('hidden');
 }
 
 
