@@ -233,7 +233,7 @@ video{width:100%;height:100%;object-fit:cover;display:block}
           <div class="cam-wrap rect" id="cam-horo-wrap">
             <video id="cam-horo" autoplay playsinline muted webkit-playsinline></video>
             <div class="cam-overlay"><div class="rect-guide"></div></div>
-            <div class="cam-hint">Centra el horómetro en el rectángulo</div>
+            <div class="cam-hint">Centra SOLO el horómetro — llena el rectángulo</div>
             <div class="shutter" id="sh-horo" onclick="tomarFoto('horo')"><div class="shutter-in"></div></div>
             <div class="cam-start" id="horo-start" onclick="iniciarCam('horo')">
               <div class="cam-start-btn">📷</div>
@@ -584,13 +584,27 @@ function prepImg(dataURL) {
     var img=new Image();
     img.onload=function(){
       var W=img.width||640, H=img.height||480;
-      // Recortar zona del rectángulo guía
-      var sx=W*0.07, sy=H*0.28, sw=W*0.86, sh=H*0.44;
+      // Recortar SOLO la zona del rectángulo guía (más preciso)
+      // El rectángulo ocupa 86% ancho x 44% alto centrado
+      var sx=W*0.07, sy=H*0.29, sw=W*0.86, sh=H*0.42;
       var c=document.createElement('canvas');
-      c.width=Math.round(sw*2); c.height=Math.round(sh*2);
+      // Escalar 2.5x para mejor calidad
+      c.width=Math.round(sw*2.5); c.height=Math.round(sh*2.5);
       var ctx=c.getContext('2d');
-      ctx.fillStyle='#fff'; ctx.fillRect(0,0,c.width,c.height);
+      // Fondo blanco
+      ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,c.width,c.height);
       ctx.drawImage(img,sx,sy,sw,sh,0,0,c.width,c.height);
+      // Aumentar contraste para números más claros
+      var id=ctx.getImageData(0,0,c.width,c.height);
+      var d=id.data;
+      for(var i=0;i<d.length;i+=4){
+        var r=d[i],g=d[i+1],b=d[i+2];
+        // Aumentar contraste 1.4x
+        d[i]=Math.min(255,Math.max(0,((r-128)*1.4)+128));
+        d[i+1]=Math.min(255,Math.max(0,((g-128)*1.4)+128));
+        d[i+2]=Math.min(255,Math.max(0,((b-128)*1.4)+128));
+      }
+      ctx.putImageData(id,0,0);
       resolve(c.toDataURL('image/jpeg',0.95));
     };
     img.onerror=function(){resolve(dataURL);};
@@ -609,8 +623,8 @@ async function ocrConClaude(dataURL, tipo) {
   var mediaType = 'image/jpeg';
 
   var prompt = tipo === 'lit'
-    ? 'Esta imagen muestra el medidor de litros de una bomba de combustible. Lee el número que aparece en el display o medidor. Responde ÚNICAMENTE con el número, sin texto adicional, sin unidades, solo el número (ejemplo: 320 o 1250.5).'
-    : 'Esta imagen muestra el horómetro de una máquina o vehículo. Lee el número que aparece. El último dígito es decimal (ejemplo: si ves 10243, el número es 1024.3). Responde ÚNICAMENTE con el número sin procesar tal como aparece en el display, sin texto adicional (ejemplo: 10243 o 5678).';
+    ? 'Esta imagen muestra SOLO el medidor de litros de una bomba de combustible Fill-Rite o similar. El número principal es el que está más grande y visible en el display. Ignora cualquier texto, marcas, series o números pequeños. Responde ÚNICAMENTE con los dígitos del contador principal, sin puntos, sin comas, sin texto (ejemplo: 060 o 1250).'
+    : 'Esta imagen muestra el área del horómetro de una máquina o vehículo industrial. El horómetro es el contador de horas de trabajo - generalmente tiene 4, 5 o 6 dígitos seguidos. IGNORA completamente: RPM, temperatura, voltaje, presión, números de serie, fechas, cualquier otro indicador. Lee SOLO el número del horómetro (contador de horas). Si hay varios números, el horómetro suele ser el más grande o el que dice HRS/HOURS cerca. Responde ÚNICAMENTE con los dígitos del horómetro sin procesar, sin puntos ni comas (ejemplo: 10243 o 5678). Si no puedes identificar claramente el horómetro, responde con la palabra INCIERTO.';
 
   try {
     var response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -663,6 +677,15 @@ async function procesarOCR(tipo, dataURL, mockText){
 
     // Intentar con Claude Vision API primero (más potente)
     rawText = await ocrConClaude(recortada, tipo);
+    // Si Claude dice INCIERTO, pedir al operador que centre mejor
+    if(rawText && rawText.toUpperCase().includes('INCIERTO')){
+      rawText='';
+      bodyEl.innerHTML='<div style="color:var(--rd);font-size:13px;text-align:center;padding:.5rem">No se identificó claramente el horómetro.<br>Centra SOLO el horómetro en el rectángulo e intenta de nuevo.</div>';
+      manEl.classList.remove('hidden');
+      btns.classList.remove('hidden');
+      progEl.style.display='none';
+      return;
+    }
     progBar.style.width='80%';
 
     // Si Claude no pudo, intentar con Tesseract como fallback
