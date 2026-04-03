@@ -1,0 +1,283 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,system-ui,sans-serif;background:var(--color-background-tertiary);color:var(--color-text-primary);padding:1rem}
+.card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1rem 1.25rem;margin-bottom:1rem}
+.lbl{font-size:12px;color:var(--color-text-secondary);margin-bottom:6px;display:block;font-weight:500;text-transform:uppercase;letter-spacing:.05em}
+.cam-wrap{position:relative;width:100%;aspect-ratio:4/3;background:#000;border-radius:var(--border-radius-md);overflow:hidden;margin-bottom:.75rem}
+video{width:100%;height:100%;object-fit:cover;display:block}
+.guide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+.rect{width:88%;height:46%;border:2.5px solid rgba(255,255,255,.9);border-radius:6px;box-shadow:0 0 0 9999px rgba(0,0,0,.45)}
+.hint{position:absolute;bottom:72px;left:0;right:0;text-align:center;color:rgba(255,255,255,.85);font-size:12px;pointer-events:none}
+.shutter{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);width:58px;height:58px;border-radius:50%;background:rgba(255,255,255,.2);border:2.5px solid #fff;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.shutter-in{width:46px;height:46px;border-radius:50%;background:#fff}
+.start-ov{position:absolute;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.start-btn{background:#E53935;border-radius:50%;width:72px;height:72px;display:flex;align-items:center;justify-content:center;font-size:30px}
+img.preview{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:var(--border-radius-md);display:none;margin-bottom:.75rem}
+img.preview.on{display:block}
+.result-box{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:1.25rem;text-align:center;display:none;margin-bottom:.75rem}
+.result-box.on{display:block}
+.result-num{font-size:48px;font-weight:500;color:var(--color-text-primary);font-variant-numeric:tabular-nums;letter-spacing:.05em}
+.result-formatted{font-size:22px;color:var(--color-text-secondary);margin-top:4px}
+.result-conf{font-size:12px;color:var(--color-text-tertiary);margin-top:8px}
+.status{font-size:13px;color:var(--color-text-secondary);text-align:center;padding:.5rem 0}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--color-border-secondary);border-top-color:#E53935;border-radius:50%;animation:sp .6s linear infinite;vertical-align:middle;margin-right:5px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.row{display:flex;gap:8px;margin-top:.5rem}
+.row button{flex:1}
+.dec-row{display:flex;align-items:center;gap:10px}
+.dec-lbl{font-size:13px;color:var(--color-text-secondary)}
+.history{max-height:200px;overflow-y:auto}
+.hi{display:flex;align-items:center;justify-content:space-between;padding:.5rem 0;border-bottom:0.5px solid var(--color-border-tertiary);font-size:13px}
+.hi:last-child{border-bottom:none}
+.hi-num{font-weight:500;font-variant-numeric:tabular-nums}
+.hi-t{color:var(--color-text-tertiary);font-size:11px}
+.badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:500}
+.badge-ok{background:var(--color-background-success);color:var(--color-text-success)}
+.badge-err{background:var(--color-background-danger);color:var(--color-text-danger)}
+</style>
+
+<div class="card">
+  <span class="lbl">Configuración</span>
+  <div class="dec-row" style="margin-bottom:.75rem">
+    <span class="dec-lbl">Decimales del horómetro:</span>
+    <select id="decimales" style="flex:1">
+      <option value="1" selected>1 decimal (ej. 10243 → 1024.3)</option>
+      <option value="2">2 decimales (ej. 10243 → 102.43)</option>
+      <option value="0">Sin decimales (ej. 10243 → 10243)</option>
+    </select>
+  </div>
+</div>
+
+<div class="card">
+  <span class="lbl">Cámara</span>
+  <div class="cam-wrap" id="cam-wrap">
+    <video id="vid" autoplay playsinline muted webkit-playsinline></video>
+    <div class="guide"><div class="rect"></div></div>
+    <div class="hint">Centra el horómetro en el rectángulo</div>
+    <div class="shutter" id="shutter" onclick="tomarFoto()" style="display:none"><div class="shutter-in"></div></div>
+    <div class="start-ov" id="start-ov" onclick="iniciarCam()">
+      <div class="start-btn">📷</div>
+    </div>
+  </div>
+  <img class="preview" id="preview" alt="">
+  <div class="result-box" id="result-box">
+    <div class="result-num" id="res-raw">—</div>
+    <div class="result-formatted" id="res-fmt">—</div>
+    <div class="result-conf" id="res-conf"></div>
+  </div>
+  <div class="status" id="status"></div>
+  <div class="row" id="action-row" style="display:none">
+    <button onclick="retomar()">Retomar</button>
+    <button onclick="confirmar()" style="background:#1D9E75;color:#04342C;border-color:#1D9E75">✓ Confirmar</button>
+  </div>
+</div>
+
+<div class="card" id="manual-card" style="display:none">
+  <span class="lbl">Corrección manual</span>
+  <input type="number" id="manual-inp" placeholder="Ingresa el número del horómetro" style="width:100%;margin-bottom:.5rem">
+  <button onclick="usarManual()">Usar este número</button>
+</div>
+
+<div class="card" id="historial-card" style="display:none">
+  <span class="lbl">Lecturas guardadas</span>
+  <div class="history" id="historial"></div>
+  <button onclick="exportar()" style="margin-top:.75rem;width:100%">⬇ Exportar CSV</button>
+</div>
+
+<script>
+var stream=null, lecturas=[], ocrTarget=null;
+
+async function iniciarCam(){
+  document.getElementById('start-ov').style.display='none';
+  setStatus('Activando cámara...');
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({
+      audio:false,
+      video:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}}
+    });
+    var vid=document.getElementById('vid');
+    vid.srcObject=stream;
+    vid.onloadedmetadata=function(){
+      vid.play();
+      document.getElementById('shutter').style.display='flex';
+      setStatus('Listo — apunta al horómetro y toca el botón blanco');
+    };
+  }catch(e){
+    setStatus('Sin cámara — usa ingreso manual');
+    document.getElementById('manual-card').style.display='block';
+  }
+}
+
+function tomarFoto(){
+  var vid=document.getElementById('vid');
+  var c=document.createElement('canvas');
+  c.width=vid.videoWidth||1280; c.height=vid.videoHeight||720;
+  c.getContext('2d').drawImage(vid,0,0);
+  var url=c.toDataURL('image/jpeg',0.95);
+
+  // Detener cámara
+  if(stream){stream.getTracks().forEach(function(t){t.stop();});stream=null;}
+  document.getElementById('shutter').style.display='none';
+
+  // Mostrar preview
+  var prev=document.getElementById('preview');
+  prev.src=url; prev.classList.add('on');
+
+  procesarOCR(url);
+}
+
+async function procesarOCR(dataURL){
+  setStatus('<span class="spin"></span>Analizando imagen con IA...');
+  document.getElementById('result-box').classList.remove('on');
+  document.getElementById('action-row').style.display='none';
+  document.getElementById('manual-card').style.display='none';
+
+  var dec=parseInt(document.getElementById('decimales').value);
+
+  // Recortar zona central del rectángulo guía
+  var recortada=await recortar(dataURL);
+
+  // Llamar Claude Vision API
+  var raw=await claudeOCR(recortada);
+  
+  if(!raw){
+    setStatus('No se pudo leer. Ingresa manualmente.');
+    document.getElementById('manual-card').style.display='block';
+    return;
+  }
+
+  // Formatear con decimales
+  var soloNums=raw.replace(/[^0-9]/g,'');
+  var formatted=formatearHoro(soloNums, dec);
+
+  document.getElementById('res-raw').textContent=soloNums;
+  document.getElementById('res-fmt').textContent=formatted+' hrs';
+  document.getElementById('res-conf').textContent='Toca "Confirmar" si el número es correcto';
+  document.getElementById('result-box').classList.add('on');
+  document.getElementById('action-row').style.display='flex';
+  document.getElementById('manual-card').style.display='block';
+  document.getElementById('manual-inp').value=soloNums;
+  ocrTarget={raw:soloNums, formatted:formatted};
+  setStatus('');
+}
+
+async function recortar(dataURL){
+  return new Promise(function(resolve){
+    var img=new Image();
+    img.onload=function(){
+      var W=img.width||1280, H=img.height||720;
+      var sx=W*0.06, sy=H*0.27, sw=W*0.88, sh=H*0.46;
+      var c=document.createElement('canvas');
+      c.width=Math.round(sw*1.5); c.height=Math.round(sh*1.5);
+      var ctx=c.getContext('2d');
+      ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);
+      ctx.drawImage(img,sx,sy,sw,sh,0,0,c.width,c.height);
+      resolve(c.toDataURL('image/jpeg',0.95));
+    };
+    img.onerror=function(){resolve(dataURL);};
+    img.src=dataURL;
+  });
+}
+
+async function claudeOCR(dataURL){
+  var base64=dataURL.split(',')[1];
+  try{
+    var resp=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',
+        max_tokens:50,
+        messages:[{
+          role:'user',
+          content:[
+            {type:'image',source:{type:'base64',media_type:'image/jpeg',data:base64}},
+            {type:'text',text:'Lee el número del horómetro en esta imagen. Responde ÚNICAMENTE con los dígitos que ves, sin espacios, sin puntos, sin comas, sin texto adicional. Solo los números tal como aparecen (ejemplo: 10243 o 5678 o 234).'}
+          ]
+        }]
+      })
+    });
+    var data=await resp.json();
+    if(data.content&&data.content[0]&&data.content[0].text){
+      var txt=data.content[0].text.trim().replace(/[^0-9]/g,'');
+      console.log('Claude OCR:',txt);
+      return txt;
+    }
+  }catch(e){console.log('OCR error:',e);}
+  return '';
+}
+
+function formatearHoro(nums, dec){
+  if(!nums||nums.length===0)return '0';
+  if(dec===0)return nums;
+  if(nums.length<=dec)return '0.'+nums.padStart(dec,'0');
+  var ip=nums.slice(0,nums.length-dec);
+  var fp=nums.slice(nums.length-dec);
+  return ip+'.'+fp;
+}
+
+function confirmar(){
+  if(!ocrTarget)return;
+  var dec=parseInt(document.getElementById('decimales').value);
+  guardarLectura(ocrTarget.raw, formatearHoro(ocrTarget.raw,dec));
+}
+
+function usarManual(){
+  var v=document.getElementById('manual-inp').value.trim().replace(/[^0-9]/g,'');
+  if(!v){alert('Ingresa un número');return;}
+  var dec=parseInt(document.getElementById('decimales').value);
+  guardarLectura(v, formatearHoro(v,dec));
+}
+
+function guardarLectura(raw, formatted){
+  var hora=new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'});
+  var fecha=new Date().toLocaleDateString('es-MX');
+  lecturas.unshift({raw:raw,formatted:formatted,hora:hora,fecha:fecha});
+  renderHistorial();
+  document.getElementById('historial-card').style.display='block';
+  setStatus('✓ Guardado: '+formatted+' hrs');
+  // Reset para nueva lectura
+  setTimeout(function(){
+    document.getElementById('preview').classList.remove('on');
+    document.getElementById('result-box').classList.remove('on');
+    document.getElementById('action-row').style.display='none';
+    document.getElementById('manual-card').style.display='none';
+    document.getElementById('start-ov').style.display='flex';
+    ocrTarget=null;
+    setStatus('');
+  },2000);
+}
+
+function retomar(){
+  document.getElementById('preview').classList.remove('on');
+  document.getElementById('result-box').classList.remove('on');
+  document.getElementById('action-row').style.display='none';
+  document.getElementById('manual-card').style.display='none';
+  document.getElementById('start-ov').style.display='flex';
+  ocrTarget=null;
+  setStatus('');
+}
+
+function renderHistorial(){
+  var h=document.getElementById('historial');
+  h.innerHTML=lecturas.map(function(l){
+    return '<div class="hi"><div><div class="hi-num">'+l.formatted+' hrs</div><div class="hi-t">'+l.fecha+' '+l.hora+'</div></div><span class="badge badge-ok">Guardado</span></div>';
+  }).join('');
+}
+
+function exportar(){
+  if(!lecturas.length){alert('No hay lecturas.');return;}
+  var csv='\uFEFFRaw,Horómetro,Hora,Fecha\n';
+  lecturas.forEach(function(l){csv+='"'+l.raw+'","'+l.formatted+' hrs","'+l.hora+'","'+l.fecha+'"\n';});
+  var blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='horometros_'+new Date().toLocaleDateString('es-MX').replace(/\//g,'-')+'.csv';
+  a.click();
+}
+
+function setStatus(msg){
+  document.getElementById('status').innerHTML=msg;
+}
+</script>
