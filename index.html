@@ -282,6 +282,16 @@ video{width:100%;height:100%;object-fit:cover;display:block}
         <button class="btn btn-dk btn-sm" onclick="guardarCfg()">Guardar</button>
       </div>
       <div class="card">
+        <div class="cl">API Key (lectura OCR con IA)</div>
+        <p style="font-size:13px;color:var(--mu);margin-bottom:.75rem;line-height:1.6">Necesaria para que la IA lea automáticamente los números de horómetro y litros.</p>
+        <div id="key-status" class="al al-warn" style="margin-bottom:.75rem">Sin configurar — ingreso manual requerido</div>
+        <label class="lbl">Anthropic API Key</label>
+        <input class="inp" id="api-key-inp" type="password" placeholder="sk-ant-...">
+        <button class="btn btn-dk btn-sm" onclick="guardarKey()">Guardar key</button>
+        <button class="btn btn-ou btn-sm" onclick="borrarKey()" style="margin-left:8px">Borrar</button>
+      </div>
+
+      <div class="card">
         <div class="cl">Firebase (sincronización)</div>
         <div id="fb-status" class="al al-warn">Sin configurar — datos solo locales</div>
         <button class="btn btn-ou btn-sm" onclick="sm('m-fb')">⚙ Configurar Firebase</button>
@@ -360,7 +370,7 @@ var camStreams={};
   if(lastDay&&lastDay!==TKEY) setTimeout(function(){sm('m-day');},600);
   else{lastDay=TKEY;save();}
   document.getElementById('hfecha').textContent=TODAY;
-  applyCfg();renderReg();
+  applyCfg();renderReg();actualizarEstadoKey();
 })();
 
 function save(){
@@ -588,7 +598,12 @@ function prepImg(dataURL) {
   });
 }
 
+// La key se guarda en localStorage, nunca en el código
+function getKey(){ return localStorage.getItem('anthropic_key')||''; }
+
 async function ocrConClaude(dataURL, tipo) {
+  var ANTHROPIC_KEY = getKey();
+  if(!ANTHROPIC_KEY){ return ''; }
   // Convertir a base64
   var base64 = dataURL.split(',')[1];
   var mediaType = 'image/jpeg';
@@ -600,7 +615,7 @@ async function ocrConClaude(dataURL, tipo) {
   try {
     var response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true'},
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 50,
@@ -771,6 +786,31 @@ function descargarCSV(){
 }
 
 // ── ADMIN ──
+function guardarKey(){
+  var k=document.getElementById('api-key-inp').value.trim();
+  if(!k){alert('Ingresa la API Key');return;}
+  localStorage.setItem('anthropic_key',k);
+  document.getElementById('api-key-inp').value='';
+  actualizarEstadoKey();
+  alert('✓ API Key guardada correctamente');
+}
+function borrarKey(){
+  localStorage.removeItem('anthropic_key');
+  actualizarEstadoKey();
+}
+function actualizarEstadoKey(){
+  var k=localStorage.getItem('anthropic_key')||'';
+  var el=document.getElementById('key-status');
+  if(!el)return;
+  if(k){
+    el.className='al al-ok';
+    el.textContent='✓ API Key configurada — OCR con IA activo';
+  } else {
+    el.className='al al-warn';
+    el.textContent='Sin configurar — ingreso manual requerido';
+  }
+}
+
 function guardarCfg(){cfg.cisterna=document.getElementById('cfg-cis').value.trim()||'Cisterna 1';save();applyCfg();alert('✓ Guardado');}
 
 function cargarExcel(e){
