@@ -233,7 +233,7 @@ video{width:100%;height:100%;object-fit:cover;display:block}
           <div class="cam-wrap rect" id="cam-horo-wrap">
             <video id="cam-horo" autoplay playsinline muted webkit-playsinline></video>
             <div class="cam-overlay"><div class="rect-guide"></div></div>
-            <div class="cam-hint">Centra SOLO el horómetro — llena el rectángulo</div>
+            <div class="cam-hint">Captura todo el panel — Claude identificará el horómetro</div>
             <div class="shutter" id="sh-horo" onclick="tomarFoto('horo')"><div class="shutter-in"></div></div>
             <div class="cam-start" id="horo-start" onclick="iniciarCam('horo')">
               <div class="cam-start-btn">📷</div>
@@ -541,7 +541,7 @@ function tomarFoto(tipo){
   var c=document.createElement('canvas');
   c.width=vid.videoWidth||640;c.height=vid.videoHeight||480;
   c.getContext('2d').drawImage(vid,0,0);
-  var url=c.toDataURL('image/jpeg',0.95);
+  var url=c.toDataURL('image/jpeg',1.0); // máxima calidad para OCR
   ph.src=url;ph.classList.add('on');
   wrap.style.display='none';
   if(camStreams[tipo]){camStreams[tipo].getTracks().forEach(function(t){t.stop();});}
@@ -615,7 +615,7 @@ function prepImg(dataURL) {
 // La key se guarda en localStorage, nunca en el código
 function getKey(){ return localStorage.getItem('anthropic_key')||''; }
 
-async function ocrConClaude(dataURL, tipo) {
+async function ocrConClaude(dataURL, tipo, imagenCompleta) {
   var ANTHROPIC_KEY = getKey();
   if(!ANTHROPIC_KEY){ return ''; }
   // Convertir a base64
@@ -623,8 +623,44 @@ async function ocrConClaude(dataURL, tipo) {
   var mediaType = 'image/jpeg';
 
   var prompt = tipo === 'lit'
-    ? 'Esta imagen muestra SOLO el medidor de litros de una bomba de combustible Fill-Rite o similar. El número principal es el que está más grande y visible en el display. Ignora cualquier texto, marcas, series o números pequeños. Responde ÚNICAMENTE con los dígitos del contador principal, sin puntos, sin comas, sin texto (ejemplo: 060 o 1250).'
-    : 'Esta imagen muestra el área del horómetro de una máquina o vehículo industrial. El horómetro es el contador de horas de trabajo - generalmente tiene 4, 5 o 6 dígitos seguidos. IGNORA completamente: RPM, temperatura, voltaje, presión, números de serie, fechas, cualquier otro indicador. Lee SOLO el número del horómetro (contador de horas). Si hay varios números, el horómetro suele ser el más grande o el que dice HRS/HOURS cerca. Responde ÚNICAMENTE con los dígitos del horómetro sin procesar, sin puntos ni comas (ejemplo: 10243 o 5678). Si no puedes identificar claramente el horómetro, responde con la palabra INCIERTO.';
+    ? `Eres un experto en lectura de medidores de combustible. Esta imagen muestra un medidor/contador de litros de una cisterna o bomba de combustible.
+
+INSTRUCCIONES PRECISAS:
+1. Busca el display principal que muestra los litros cargados en esta descarga
+2. En medidores Fill-Rite u otros, el contador de litros suele estar en la parte superior con dígitos grandes (mecánicos o digitales)
+3. Puede ser un display de ruedas mecánicas, LCD o LED
+4. IGNORA: texto descriptivo, marcas del fabricante, números de serie, "TOTAL LITRES", "RESET TO ZERO", presión PSI
+5. El número puede tener 2-6 dígitos
+
+Responde ÚNICAMENTE con los dígitos que ves, sin espacios, sin puntos, sin comas, sin texto adicional.
+Ejemplos correctos: 060, 1250, 320, 0821
+Si no puedes leer el número claramente: responde INCIERTO`
+
+    : `Eres un experto en instrumentación industrial. Esta imagen muestra un panel o display de una máquina/vehículo de construcción o minería.
+
+TU ÚNICA TAREA: Encontrar y leer el HORÓMETRO (contador de horas de trabajo de la máquina).
+
+CÓMO IDENTIFICAR EL HORÓMETRO:
+- Generalmente dice "HRS", "HOURS", "HR", "HOROMETRO" cerca del número
+- Suele tener 4-6 dígitos
+- En paneles digitales puede ser un display LCD o LED
+- En versiones analógicas son ruedas mecánicas con números
+- El valor suele estar entre 0 y 99999 horas
+- A veces el último dígito está en color diferente (es el decimal)
+
+IGNORA COMPLETAMENTE estos otros indicadores aunque tengan números:
+- RPM (revoluciones por minuto) - suele ser 0-4000
+- Temperatura del motor - suele ser 60-120°C  
+- Voltaje/batería - suele ser 12-28V
+- Presión de aceite - suele ser 0-100 PSI/BAR
+- Velocidad KM/H
+- Nivel de combustible %
+- Números de serie o modelo
+- Fechas o códigos de error
+
+Responde ÚNICAMENTE con los dígitos del horómetro tal como aparecen, sin puntos, sin comas, sin texto.
+Ejemplos correctos: 10243, 5678, 023419
+Si genuinamente no puedes identificar el horómetro: responde INCIERTO`;
 
   try {
     var response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -671,12 +707,14 @@ async function procesarOCR(tipo, dataURL, mockText){
 
   if(!mockText && dataURL){
     // Recortar zona importante
-    var recortada = await prepImg(dataURL);
+    // Para horómetro: mandar imagen completa para que Claude identifique el contexto
+    // Para litros: recortar la zona del contador
+    var imgParaClaude = tipo === 'horo' ? dataURL : await prepImg(dataURL);
     progBar.style.width='50%';
-    bodyEl.innerHTML='<span class="spin"></span>Leyendo número...';
+    bodyEl.innerHTML='<span class="spin"></span>Leyendo número con IA...';
 
-    // Intentar con Claude Vision API primero (más potente)
-    rawText = await ocrConClaude(recortada, tipo);
+    // Claude Vision API
+    rawText = await ocrConClaude(imgParaClaude, tipo);
     // Si Claude dice INCIERTO, pedir al operador que centre mejor
     if(rawText && rawText.toUpperCase().includes('INCIERTO')){
       rawText='';
